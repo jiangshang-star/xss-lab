@@ -1,0 +1,734 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>XSS 注入闯关靶场 · 1024 造物挑战</title>
+<meta name="description" content="一个自包含的 Web 安全闯关靶场：8 关 XSS 与 SQL 注入模拟，全部在本地沙箱内完成，通关赢取结业认证。">
+<style>
+:root{
+  --bg:#0a0f14; --panel:#0f1820; --panel2:#121e29; --line:#1d2f3f;
+  --green:#2ee88a; --cyan:#43d3e8; --orange:#ffb454; --red:#ff6b6b;
+  --purple:#b18cff; --txt:#d7e4ee; --dim:#7d93a6; --mono:'Cascadia Code','JetBrains Mono',Consolas,'Courier New',monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:radial-gradient(1200px 600px at 70% -10%, #10222e 0%, var(--bg) 55%) fixed;
+  color:var(--txt); font-family:var(--mono); line-height:1.65; padding-bottom:70px;
+}
+a{color:var(--cyan)}
+/* header */
+header{
+  position:sticky;top:0;z-index:50;display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+  padding:12px 18px;background:rgba(10,15,20,.92);backdrop-filter:blur(6px);
+  border-bottom:1px solid var(--line);
+}
+.logo{
+  width:44px;height:44px;border-radius:10px;flex:0 0 auto;
+  background:linear-gradient(135deg,#0e2b1e,#0a1a26);border:1px solid #1f4d38;
+  display:flex;align-items:center;justify-content:center;
+  color:var(--green);font-weight:700;font-size:13px;letter-spacing:-1px;
+}
+.htxt h1{font-size:16px;letter-spacing:.5px}
+.htxt p{font-size:11px;color:var(--dim)}
+.hspace{flex:1}
+.dots{display:flex;gap:7px;align-items:center}
+.dot{
+  width:26px;height:26px;border-radius:8px;border:1px solid var(--line);background:var(--panel);
+  color:var(--dim);font-size:11px;cursor:pointer;display:flex;align-items:center;justify-content:center;
+  transition:.15s;user-select:none;
+}
+.dot:hover{border-color:var(--cyan);color:var(--cyan)}
+.dot.cur{border-color:var(--green);color:var(--green);box-shadow:0 0 0 2px rgba(46,232,138,.15)}
+.dot.done{background:#123524;border-color:#1f6b45;color:var(--green)}
+.dot.lock{opacity:.35;cursor:not-allowed}
+/* layout */
+.wrap{max-width:980px;margin:0 auto;padding:22px 16px}
+.card{
+  background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin-bottom:16px;
+}
+.card h2{font-size:15px;margin-bottom:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.brief{border-left:3px solid var(--cyan);padding-left:14px;color:#b9cad8;font-size:13.5px}
+.goal{margin-top:10px;font-size:13.5px}
+.goal b{color:var(--orange)}
+.chip{
+  display:inline-block;padding:1px 9px;border-radius:99px;font-size:11px;border:1px solid;vertical-align:1px;
+}
+.chip.xss{color:var(--red);border-color:#5a2626;background:#1c1013}
+.chip.sqli{color:var(--orange);border-color:#5a4126;background:#1c1610}
+.chip.boss{color:var(--purple);border-color:#3f2f5e;background:#171226}
+.chip.diff{color:var(--dim);border-color:var(--line);background:var(--panel2)}
+.chip.waf{color:var(--green);border-color:#1f4d38;background:#0e2119}
+/* fake browser */
+.browser{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#0b1219;margin-bottom:14px}
+.bbar{
+  display:flex;align-items:center;gap:8px;padding:8px 12px;background:#0e1720;border-bottom:1px solid var(--line);
+}
+.bdot{width:10px;height:10px;border-radius:50%}
+.url{
+  flex:1;margin-left:6px;background:#0a1117;border:1px solid var(--line);border-radius:99px;
+  color:var(--dim);font-size:11.5px;padding:3px 12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.url b{color:var(--green);font-weight:400}
+#iframeHost iframe{width:100%;height:340px;border:0;display:block;background:#f4f6f8}
+/* controls */
+.ctrl{display:flex;gap:10px;flex-wrap:wrap;margin:6px 0 12px}
+.field{flex:1;min-width:200px}
+.field label{display:block;font-size:11px;color:var(--dim);margin-bottom:4px}
+input[type=text],input[type=password],textarea{
+  width:100%;background:#0a1117;border:1px solid var(--line);border-radius:9px;color:var(--txt);
+  font-family:var(--mono);font-size:13.5px;padding:9px 12px;outline:none;transition:.15s;
+}
+input:focus,textarea:focus{border-color:var(--cyan);box-shadow:0 0 0 2px rgba(67,211,232,.12)}
+textarea{resize:vertical;min-height:70px}
+.btn{
+  background:linear-gradient(180deg,#1f8f5a,#177a4b);border:1px solid #27a568;color:#eafff4;
+  font-family:var(--mono);font-size:13.5px;padding:9px 18px;border-radius:9px;cursor:pointer;transition:.15s;
+  align-self:flex-end;white-space:nowrap;
+}
+.btn:hover{filter:brightness(1.12)}
+.btn.ghost{background:var(--panel2);border:1px solid var(--line);color:var(--dim)}
+.btn.ghost:hover{color:var(--txt);border-color:var(--dim);filter:none}
+/* console / log */
+.sqllog{
+  background:#080d12;border:1px solid var(--line);border-radius:10px;padding:12px 14px;
+  font-size:12.5px;color:#9fb4c4;overflow-x:auto;white-space:pre-wrap;word-break:break-all;margin-top:12px;
+}
+.sqllog .k{color:var(--purple)}
+.sqllog .s{color:var(--orange)}
+.sqllog .err{color:var(--red)}
+.sqllog .ok{color:var(--green)}
+.sqlres{margin-top:10px}
+.sqlres table{border-collapse:collapse;font-size:12.5px;width:100%}
+.sqlres th,.sqlres td{border:1px solid var(--line);padding:5px 12px;text-align:left}
+.sqlres th{background:var(--panel2);color:var(--cyan);font-weight:400}
+.sqlres tr.flagrow td{color:var(--orange);background:#211808}
+/* hints */
+.hints{margin-top:12px}
+.hint{
+  border:1px dashed #2a4054;border-radius:9px;padding:8px 12px;margin-top:8px;font-size:12.5px;color:#a8bccb;
+  background:rgba(67,211,232,.04);
+}
+.hint b{color:var(--cyan);font-weight:400}
+/* footer & notice */
+.foot{max-width:980px;margin:8px auto 0;padding:0 16px 26px;color:var(--dim);font-size:11.5px;text-align:center}
+.sandbox-chip{
+  display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--green);
+  border:1px solid #1f4d38;background:#0e2119;border-radius:99px;padding:2px 10px;margin-bottom:10px;
+}
+/* overlay */
+.mask{
+  position:fixed;inset:0;background:rgba(4,8,12,.78);backdrop-filter:blur(3px);z-index:100;
+  display:none;align-items:center;justify-content:center;padding:18px;
+}
+.mask.show{display:flex}
+.modal{
+  background:var(--panel);border:1px solid #2a4a3a;border-radius:16px;max-width:560px;width:100%;
+  padding:26px 26px 20px;box-shadow:0 20px 60px rgba(0,0,0,.6);max-height:88vh;overflow:auto;
+  animation:pop .25s ease;
+}
+@keyframes pop{from{transform:scale(.92);opacity:0}to{transform:scale(1);opacity:1}}
+.modal h3{font-size:18px;margin-bottom:10px}
+.modal .note{
+  background:#0e2119;border:1px solid #1f4d38;border-radius:10px;padding:10px 14px;
+  font-size:13px;color:#bfe8d2;margin:12px 0;
+}
+.modal .btns{display:flex;gap:10px;justify-content:flex-end;margin-top:16px;flex-wrap:wrap}
+/* certificate */
+.cert{
+  text-align:center;border:2px solid #2f6b4c;border-radius:14px;padding:26px 18px;
+  background:linear-gradient(160deg,#0d1f16,#0a1620);margin:10px 0;
+}
+.cert .big{font-size:34px}
+.cert h4{font-size:20px;color:var(--green);margin:8px 0 4px;letter-spacing:2px}
+.cert p{font-size:12px;color:var(--dim)}
+/* toast */
+#toast{
+  position:fixed;left:50%;bottom:86px;transform:translateX(-50%);z-index:120;
+  background:#15242f;border:1px solid var(--cyan);color:var(--txt);border-radius:10px;
+  padding:9px 18px;font-size:13px;display:none;box-shadow:0 8px 30px rgba(0,0,0,.5);
+}
+.confetti{position:fixed;top:-20px;font-size:18px;z-index:110;animation:fall linear forwards;pointer-events:none}
+@keyframes fall{to{transform:translateY(105vh) rotate(540deg);opacity:.6}}
+.stat{font-size:11.5px;color:var(--dim);margin-left:auto}
+@media (max-width:640px){
+  .htxt p{display:none}
+  #iframeHost iframe{height:300px}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">0x400</div>
+  <div class="htxt">
+    <h1>XSS 注入闯关靶场</h1>
+    <p>WorkBuddy「1024 造物挑战」参赛作品 · 8 关 · 全程本地沙箱</p>
+  </div>
+  <div class="hspace"></div>
+  <div class="dots" id="dots"></div>
+</header>
+
+<div class="wrap">
+  <div class="sandbox-chip">🧪 本靶场完全自包含：所有注入都发生在隔离 iframe 沙箱内，不访问任何真实网站</div>
+
+  <div class="card" id="briefCard"></div>
+
+  <div class="browser" id="browserBox">
+    <div class="bbar">
+      <span class="bdot" style="background:#ff5f57"></span>
+      <span class="bdot" style="background:#febc2e"></span>
+      <span class="bdot" style="background:#28c840"></span>
+      <span class="url" id="urlBar">http://<b>minisearch.lab</b>/search</span>
+    </div>
+    <div id="iframeHost"></div>
+    <div id="sqlHost" style="display:none;padding:16px 18px;background:#0b1219"></div>
+  </div>
+
+  <div class="card" id="ctrlCard"></div>
+  <div id="sqlLogCard"></div>
+  <div class="card" id="hintCard"></div>
+</div>
+
+<div class="foot">
+  本页面为网络安全教学模拟：所有“漏洞应用”均为虚构并在沙箱内运行，与任何真实系统无关。<br>
+  请只在授权范围内测试真实目标 · 白帽守则第一条：先拿授权，再拿洞。
+</div>
+
+<div class="mask" id="mask"><div class="modal" id="modal"></div></div>
+<div id="toast"></div>
+
+<script>
+/* ============ 基础 ============ */
+function $(id){return document.getElementById(id)}
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+function toast(msg){
+  var t=$('toast');t.innerHTML=msg;t.style.display='block';
+  clearTimeout(t._h);t._h=setTimeout(function(){t.style.display='none'},2200);
+}
+var S_OPEN='<'+'script>', S_CLOSE='<'+'/script>';
+
+/* ============ 关卡定义 ============ */
+var LEVELS=[
+{ tag:'xss', diff:'★', title:'第 1 关 · Hello XSS', app:'reflect', url:'http://minisearch.lab/search',
+  brief:'欢迎来到靶场。眼前是一个虚构的搜索引擎 MiniSearch，它把你的输入<b>原样</b>拼进了结果页的 HTML —— 开发者忘了做任何转义。',
+  goal:'在模拟页面里弹出一个弹窗（alert / prompt / confirm 触发任意一个即通关）',
+  filter:null,
+  hints:['最经典的 payload：<b>&lt;script&gt;alert(1)&lt;/script&gt;</b>（在下方输入框里输入后点「注入」）',
+         '不想用 script 标签也行：<b>&lt;img src=x onerror=alert(1)&gt;</b>',
+         '弹窗内容随意，只要弹出来就算通关'],
+  note:'反射型 XSS：用户输入未经转义就被拼进响应 HTML，浏览器会把它当标签执行。修复方法：输出到 HTML 时一律做实体转义（&lt; &gt; &amp; "），并配合 CSP 兜底。'},
+
+{ tag:'xss', diff:'★★', title:'第 2 关 · 属性出逃', app:'attr', url:'http://minisearch.lab/search?v=1',
+  brief:'这次开发者学聪明了点：你的输入被放进了一个 input 标签的 value 属性里，而不是直接进正文。但它依然是「裸拼」。',
+  goal:'同样：在模拟页面里弹出一个弹窗',
+  filter:null,
+  hints:['先想办法从 value="..." 这个属性里<b>逃出去</b>，再注入自己的标签',
+         '双引号可以闭合属性，&gt; 可以闭合标签：<b>"&gt;</b> 之后接一个能弹窗的标签',
+         '参考：<b>"&gt;&lt;img src=x onerror=alert(1)&gt;</b>'],
+  note:'属性上下文注入：即使输入在属性里，只要引号和标签字符没有被转义，攻击者就能先「闭合」再注入新标签。修复：按上下文转义（属性内要额外转义引号）。'},
+
+{ tag:'xss', diff:'★★', title:'第 3 关 · 黑名单的裂缝', app:'reflect', url:'http://minisearch.lab/search?safe=1',
+  brief:'安全团队上线了一个黑名单 WAF：凡是包含 <b>script</b> 关键词的输入一律拦截。可惜黑名单永远挂一漏万 —— HTML 里会执行代码的东西可不止 script 标签。',
+  goal:'绕过黑名单，在模拟页面里弹出一个弹窗',
+  filter:{words:['script']},
+  hints:['禁了 &lt;script&gt; 标签，但 HTML 里能让代码跑起来的还有<b>事件属性</b>',
+         'img 标签加载失败会触发 onerror：<b>&lt;img src=x onerror=alert(1)&gt;</b>',
+         'svg onload、body onload、video onerror… 都是同类思路'],
+  note:'黑名单过滤是脆弱的：HTML 事件属性（onerror / onload / ontoggle…）有成百上千个。修复：不要黑名单，改用白名单 + 输出编码 + 模板引擎自动转义。'},
+
+{ tag:'xss', diff:'★★★', title:'第 4 关 · 越狱 script 块', app:'scriptctx', url:'http://minisearch.lab/js-search',
+  brief:'新版本把你的输入放进了页面内联 JS 代码里，还转义了引号和反斜杠 —— 字符串看起来进不去了。但别忘了：对浏览器来说，HTML 解析优先于 JS 语法。',
+  goal:'在模拟页面里弹出一个弹窗',
+  filter:null,
+  hints:['引号被转义了，但有个组合字符浏览器<b>先于 JS 引擎</b>处理：&lt;/script&gt;',
+         '先输入 <b>&lt;/script&gt;</b> 提前结束这个 script 块，JS 上下文就没了，你回到了 HTML 上下文',
+         '完整思路：<b>&lt;/script&gt;&lt;img src=x onerror=alert(1)&gt;</b>'],
+  note:'script 上下文逃逸：在 &lt;script&gt; 块内，浏览器一旦看到 &lt;/script&gt; 就结束脚本，无论它出现在字符串里还是代码里。修复：用户数据进 JS 时用 JSON 序列化 + 把 / 转义为 \\u002f，或干脆放 data-* 属性再读取。'},
+
+{ tag:'xss', diff:'★★★', title:'第 5 关 · 存储型留言板', app:'guestbook', url:'http://guestbook.lab/',
+  brief:'虚构网站「小黑板」上线了留言板，还配了个「审核机器人」巡访留言。管理员封了 script 和 onerror 两个关键词，觉得很安全 —— 但你的留言会被<b>存储</b>下来，每个访客（包括机器人）渲染时都会原样执行。',
+  goal:'让「审核机器人」在渲染你的留言时弹出弹窗',
+  filter:{words:['script','onerror']},
+  hints:['过滤器只挡了两个关键词，还有别的标签自带<b>加载即触发</b>的事件',
+         '试试 <b>&lt;svg onload=alert(1)&gt;</b> 或 <b>&lt;details open ontoggle=alert(1)&gt;</b>',
+         '发布后机器人 1 秒内就会来巡访，弹出即通关'],
+  note:'存储型 XSS：payload 被持久化，危害所有访问者，是三类 XSS 中危害最大的。黑名单封不完事件属性 —— 修复必须靠输出编码，存储型还要在「读」的一侧再编码一次。'},
+
+{ tag:'sqli', diff:'★★★', title:'第 6 关 · 登录绕过', app:'sqli-login', url:'http://corp-sso.lab/login',
+  brief:'虚构企业 SSO「CorpSSO」的登录接口把你的输入直接拼进了 SQL。页面上会实时显示拼出来的 SQL 语句 —— 这在真实世界当然看不到，但靶场里你可以对着语句构造 payload。',
+  goal:'不输入正确密码的情况下，以 <b>admin</b> 身份登录成功',
+  filter:null,
+  hints:['SQL 里 <b>--</b> 是注释，能把后面的密码校验整段「注释掉」',
+         '先让用户名条件恒假（输入一个引号开头），再 OR 一个恒真条件：<b>\' OR \'1\'=\'1\' --</b>（结尾带空格）',
+         '也可以直接 <b>admin\' --</b>：只匹配 admin、注释掉密码判断'],
+  note:'SQL 注入之认证绕过：字符串拼接让攻击者改写了 WHERE 逻辑。修复：参数化查询（Prepared Statement），永远不要把用户输入拼进 SQL 字符串。'},
+
+{ tag:'sqli', diff:'★★★★', title:'第 7 关 · UNION 偷旗', app:'sqli-union', url:'http://news-portal.lab/search',
+  brief:'虚构资讯站 NewsPortal 的文章搜索存在注入。数据库里还有一张不该被搜到的表 secrets，里面躺着 flag。UNION SELECT 可以把任意表的查询结果「拼接」到正常结果后面 —— 前提是列数对得上。',
+  goal:'利用 UNION 注入把 secrets 表里的 flag 搜出来',
+  filter:null,
+  hints:['先用 <b>\'</b> 闭合 LIKE 的引号，再用 UNION SELECT 追加你自己的查询',
+         'secrets 表有 id 和 flag 两列；正常查询返回两列，列数刚好对上',
+         '参考：<b>\' UNION SELECT id,flag FROM secrets --</b>'],
+  note:'UNION 联合查询注入：攻击者通过 UNION 把任意表数据并进正常响应。修复同样是参数化查询； additionally 最小化应用账号的表权限，敏感表不与业务同库同权限。'},
+
+{ tag:'boss', diff:'★★★★★', title:'最终关 · WAF Boss 战', app:'final', url:'http://fortress.lab/search',
+  brief:'最后一关：安全团队重写了 WAF，一次封禁了一大串关键词 —— script、img、svg、onerror、onload、alert、iframe、object、embed 全部落网。但 HTML 的标签与事件多到封不完，冷门标签+冷门事件就是你的武器。',
+  goal:'绕过 WAF，在模拟页面里弹出一个弹窗（alert 被封了，prompt / confirm 依然可用）',
+  filter:{words:['script','img','svg','onerror','onload','alert','iframe','object','embed']},
+  hints:['弹窗三兄弟 alert 被封了，但 <b>prompt</b> 和 <b>confirm</b> 还活着',
+         '&lt;details&gt; 标签配合 open 属性，页面一渲染就会触发 ontoggle 事件',
+         '参考：<b>&lt;details open ontoggle=prompt(1)&gt;</b> 或 &lt;input autofocus onfocus=prompt(1)&gt;'],
+  note:'WAF Boss 战的启示：关键词封禁永远追不完攻击面。真正的修复是输出编码 + 参数化 + CSP 三层防线，而不是封关键词。恭喜你，带着这套思路出关吧。'}
+];
+
+/* ============ 进度存取 ============ */
+var KEY='xsslab-progress-v1';
+var state={unlocked:0,done:{},hintsUsed:{}};
+try{var raw=localStorage.getItem(KEY);if(raw){var s=JSON.parse(raw);if(s&&s.unlocked!=null)state=s;}}catch(e){}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(state))}catch(e){}}
+
+/* ============ 顶栏圆点 ============ */
+function renderDots(){
+  var h='';
+  for(var i=0;i<LEVELS.length;i++){
+    var cls='dot'+(i===cur?' cur':'')+(state.done[i]?' done':'');
+    if(i>state.unlocked)cls+=' lock';
+    h+='<div class="'+cls+'" data-i="'+i+'">'+(state.done[i]?'✓':(i+1))+'</div>';
+  }
+  $('dots').innerHTML=h;
+  var ds=$('dots').querySelectorAll('.dot');
+  for(var j=0;j<ds.length;j++){
+    ds[j].onclick=function(){
+      var i=+this.getAttribute('data-i');
+      if(i>state.unlocked){toast('🔒 先通关第 '+(state.unlocked+1)+' 关再来');return;}
+      showLevel(i);
+    };
+  }
+}
+
+/* ============ 靶场应用构建（iframe 沙箱） ============ */
+function applyFilter(f,q){
+  if(!f)return q;
+  var out=q;
+  for(var i=0;i<f.words.length;i++){
+    var re=new RegExp(f.words[i],'gi');
+    out=out.replace(re,'');
+  }
+  return out;
+}
+function hookScript(){
+  return S_OPEN+
+  '(function(){'+
+  'function report(v){try{parent.postMessage({type:"lab-win",detail:String(v)},"*")}catch(e){}}'+
+  'function banner(msg){var d=document.createElement("div");d.style.cssText="position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:9999;background:#1a1a2e;color:#ff6b6b;border:2px solid #ff6b6b;border-radius:8px;padding:10px 18px;font:13px/1.5 monospace;max-width:90%;word-break:break-all";d.textContent="🎯 XSS 已触发 → "+msg;document.body.appendChild(d)}'+
+  'window.alert=function(m){banner("alert("+m+")");report("alert("+m+")")};'+
+  'window.prompt=function(m){banner("prompt("+m+")");report("prompt("+m+")");return "ok"};'+
+  'window.confirm=function(m){banner("confirm("+m+")");report("confirm("+m+")");return true};'+
+  '})();'+
+  S_CLOSE;
+}
+function appCss(){
+  return 'body{font:13px/1.7 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif;background:#f4f6f8;color:#2b3440;margin:0;padding:18px 20px}'+
+  '.mnav{font-weight:700;color:#1a6dd4;font-size:16px;margin-bottom:12px}'+
+  '.mbox{background:#fff;border:1px solid #dde3ea;border-radius:8px;padding:12px 14px;margin-bottom:12px}'+
+  '.mres{background:#fff;border:1px solid #dde3ea;border-radius:8px;padding:12px 14px;min-height:52px}'+
+  '.mnote{color:#8a95a3;font-size:12px;margin-top:8px}'+
+  '.waf{display:inline-block;background:#e8f7ee;border:1px solid #b6e2c8;color:#1c7c46;border-radius:99px;padding:1px 10px;font-size:11px;margin-left:8px;vertical-align:2px}'+
+  '.c{border-bottom:1px solid #eef1f4;padding:8px 2px}'+
+  '.bot{background:#fff8e6;border:1px solid #f0e0b0;color:#8a6d1a;border-radius:8px;padding:8px 12px;margin-top:12px;font-size:12px}'+
+  'input{border:1px solid #ccd4dd;border-radius:6px;padding:5px 10px;font-size:13px;width:60%}';
+}
+function buildXssDoc(lvl,q){
+  var inner='';
+  if(lvl.app==='reflect'||lvl.app==='final'){
+    var waf=(lvl.filter?'<span class="waf">🛡 WAF 已拦截: '+lvl.filter.words.join(' / ')+'</span>':'');
+    inner='<div class="mnav">MiniSearch 🔍'+waf+'</div>'+
+      '<div class="mres">你搜索了：<b>'+q+'</b></div>'+
+      '<div class="mnote">共找到 0 条结果（这个站本来也没啥内容）</div>';
+  }else if(lvl.app==='attr'){
+    inner='<div class="mnav">MiniSearch 🔍</div>'+
+      '<div class="mbox">🔍 搜索：<input value="'+q+'" readonly style="width:70%"></div>'+
+      '<div class="mres" id="r"></div>'+
+      S_OPEN+'var v=document.querySelector("input").value;document.getElementById("r").innerHTML="你搜索了：<b>"+v+"</b>（共 0 条）";'+S_CLOSE;
+  }else if(lvl.app==='scriptctx'){
+    inner='<div class="mnav">MiniSearch · JS 渲染版 ⚡</div>'+
+      '<div class="mres" id="r"></div>'+
+      S_OPEN+'var q = "'+q.replace(/\\/g,'\\\\').replace(/"/g,'\\"')+'";try{document.getElementById("r").innerHTML="你搜索了：<b>"+q+"</b>（共 0 条）"}catch(e){}'+S_CLOSE;
+  }else if(lvl.app==='guestbook'){
+    var list='';
+    for(var i=0;i<gbComments.length;i++){
+      list+='<div class="c"><b>访客'+(i+1)+'：</b>'+gbComments[i]+'</div>';
+    }
+    if(!list)list='<div class="c" style="color:#8a95a3">还没有留言，来抢沙发～</div>';
+    inner='<div class="mnav">小黑板 📝 留言板<span class="waf">🛡 已封禁: script / onerror</span></div>'+
+      '<div class="mres">'+list+'</div>'+
+      '<div class="bot">🤖 审核机器人正在巡访留言内容…（渲染方式：innerHTML 原样输出）</div>';
+  }
+  return '<!DOCTYPE html><html><head><meta charset="utf-8"><style>'+appCss()+'</style>'+
+    hookScript()+'</head><body>'+inner+'</body></html>';
+}
+
+/* ============ 留言板数据（第 5 关） ============ */
+var gbComments=[];
+
+/* ============ Mock SQL 引擎（第 6、7 关） ============ */
+var USERS=[
+  {username:'admin',password:'S3cret_1024!',role:'admin',name:'张管理员'},
+  {username:'test',password:'123456',role:'user',name:'测试号'},
+  {username:'guest',password:'guest',role:'guest',name:'访客'}
+];
+var ARTICLES=[
+  {id:1,title:'WorkBuddy 发布 1024 造物挑战'},
+  {id:2,title:'程序员节生存指南：需求评审篇'},
+  {id:3,title:'浅谈代码评审中的友善沟通'}
+];
+var SECRETS=[{id:7,flag:'FLAG{uni0n_i5_p0werful}',owner:'root'}];
+function stripComment(sql){return sql.replace(/--([\s\S]*)$/,'')}
+function splitConds(s){
+  var parts=[],cur='',op=null,i=0,inQ=false;
+  s=s.trim();
+  while(i<s.length){
+    var ch=s.charAt(i);
+    if(ch==="'"){inQ=!inQ;cur+=ch;i++;continue;}
+    if(!inQ){
+      var rest=s.slice(i);
+      if(/^AND\b/i.test(rest)){parts.push({op:op,expr:cur.trim()});op='AND';cur='';i+=3;continue;}
+      if(/^OR\b/i.test(rest)){parts.push({op:op,expr:cur.trim()});op='OR';cur='';i+=2;continue;}
+    }
+    cur+=ch;i++;
+  }
+  parts.push({op:op,expr:cur.trim()});
+  return parts;
+}
+function evalExpr(e,row){
+  e=e.trim();
+  var m=e.match(/^(?:(\w+)|'([^']*)')\s*=\s*'(.*)'$/);
+  if(!m)return {err:"SQLSTATE[42000]: 语法错误 → 无法解析条件: "+e};
+  var val=m[3];
+  if(m[1]===undefined)return m[2]===val; /* 左侧是字符串字面量，如 '1'='1' */
+  var col=m[1];
+  if(/^\d+$/.test(col))return col===val;
+  if(!(col in row))return {err:"SQLSTATE[42S22]: Unknown column '"+col+"'"};
+  return String(row[col])===val;
+}
+function evalWhere(cond,row){
+  var parts=splitConds(cond),res=null;
+  for(var i=0;i<parts.length;i++){
+    var v=evalExpr(parts[i].expr,row);
+    if(v&&v.err)return v;
+    if(res===null)res=v;
+    else if(parts[i].op==='AND')res=(res&&v);
+    else res=(res||v);
+  }
+  return res;
+}
+/* UNION 关引擎 */
+function runUnionQuery(input){
+  var sql="SELECT id,title FROM articles WHERE title LIKE '%"+input+"%'";
+  var logHtml=sqlLog(sql,input);
+  var stripped=stripComment(sql);
+  var up=stripped.split(/\s+UNION\s+/i);
+  var main=up[0], rows=[];
+  var likeM=main.match(/LIKE\s+'(.*)'\s*$/i);
+  var rowsHtml='',flagHit=false;
+  function renderTable(rs,cols){
+    if(!cols)return '';
+    var h='<table><tr>';
+    for(var c=0;c<cols.length;c++)h+='<th>'+esc(cols[c])+'</th>';
+    h+='</tr>';
+    for(var i=0;i<rs.length;i++){
+      var isFlag=false;
+      h+='<tr'+(rs[i]._flag?' class="flagrow"':'')+'>';
+      for(var j=0;j<cols.length;j++){
+        var v=rs[i][cols[j]];if(v===undefined)v='';
+        if(String(v).indexOf('FLAG{')>=0){isFlag=true;flagHit=true;}
+        h+='<td>'+esc(v)+'</td>';
+      }
+      h+='</tr>';
+    }
+    return h+'</table>';
+  }
+  if(likeM){
+    var pat=likeM[1].replace(/[.*+?^${}()|\[\]\\]/g,'\\$&').replace(/%/g,'.*').replace(/_/g,'.');
+    var re=new RegExp('^.*'+pat+'.*$','i');
+    for(var i=0;i<ARTICLES.length;i++){
+      if(re.test(ARTICLES[i].title))rows.push(ARTICLES[i]);
+    }
+    rowsHtml+='<div class="sqlres">'+renderTable(rows,['id','title'])+'</div>';
+  }else{
+    return {log:logHtml+'<div class="sqllog err">SQLSTATE[42000]: 语法错误，请检查引号是否配对</div>',win:false};
+  }
+  if(up.length>1){
+    var um=up[1].match(/^SELECT\s+([\s\S]+?)\s+FROM\s+(\w+)\s*$/i);
+    if(!um){
+      return {log:logHtml+'<div class="sqllog err">SQLSTATE[42000]: UNION 子句解析失败</div>',win:false};
+    }
+    var cols=um[1].split(',').map(function(x){return x.trim()});
+    var table=um[2].toLowerCase();
+    var data=table==='secrets'?SECRETS:(table==='articles'?ARTICLES:null);
+    if(!data)return {log:logHtml+'<div class="sqllog err">SQLSTATE[42S02]: Table \''+esc(table)+'\' doesn\'t exist</div>',win:false};
+    var urows=[];
+    for(var k=0;k<data.length;k++){
+      var o={_flag:false};
+      for(var c=0;c<cols.length;c++){
+        if(!(cols[c] in data[k])){
+          return {log:logHtml+'<div class="sqllog err">SQLSTATE[42S22]: Unknown column \''+esc(cols[c])+'\' in \''+esc(table)+'\'</div>',win:false};
+        }
+        o[cols[c]]=data[k][cols[c]];
+        if(String(data[k][cols[c]]).indexOf('FLAG{')>=0)o._flag=true;
+      }
+      urows.push(o);
+    }
+    rowsHtml+='<div style="font-size:11px;color:#7d93a6;margin-top:8px">↳ UNION 结果已拼接：</div><div class="sqlres">'+renderTable(urows,cols)+'</div>';
+  }
+  return {log:logHtml+rowsHtml,win:flagHit};
+}
+function runLoginQuery(u,p){
+  var sql="SELECT * FROM users WHERE username='"+u+"' AND password='"+p+"'";
+  var logHtml=sqlLog(sql,u,p);
+  var cond=stripComment(sql).match(/WHERE\s+([\s\S]+)$/i);
+  if(!cond)return {log:logHtml+'<div class="sqllog err">SQL 语法错误</div>',msg:null};
+  var rows=[];
+  for(var i=0;i<USERS.length;i++){
+    var r=evalWhere(cond[1],USERS[i]);
+    if(r&&r.err)return {log:logHtml+'<div class="sqllog err">'+esc(r.err)+'</div>',msg:null};
+    if(r)rows.push(USERS[i]);
+  }
+  var tail;
+  if(rows.length===0){
+    tail='<div class="sqllog">→ 查询结果 0 行：<span class="err">登录失败，用户名或密码错误</span></div>';
+    return {log:logHtml+tail,msg:'fail'};
+  }
+  var who=rows[0];
+  if(who.role==='admin'){
+    tail='<div class="sqllog">→ 查询结果 '+rows.length+' 行：<span class="ok">以 ['+esc(who.username)+'] 身份登录成功 · 欢迎回来，'+esc(who.name)+' 🎉</span></div>';
+    return {log:logHtml+tail,msg:'admin'};
+  }
+  tail='<div class="sqllog">→ 查询结果 '+rows.length+' 行：<span class="ok">登录成功</span>，但你的身份是 ['+esc(who.username)+'] —— 目标可是 <span class="s">admin</span> 哦</div>';
+  return {log:logHtml+tail,msg:'notadmin'};
+}
+function sqlLog(sql,hi1,hi2){
+  var s=esc(sql);
+  if(hi1!=null)s=s.split(esc(hi1)).join('<span class="s">'+esc(hi1)+'</span>');
+  if(hi2!=null&&hi2!=='')s=s.split(esc(hi2)).join('<span class="s">'+esc(hi2)+'</span>');
+  return '<div class="sqllog"><span class="k">SQL&gt;</span> '+s+'</div>';
+}
+
+/* ============ 界面渲染 ============ */
+var cur=0;
+function showLevel(i){
+  if(i>state.unlocked){toast('🔒 先通关前面的关卡');return;}
+  cur=i;
+  gbComments=[];
+  var L=LEVELS[i];
+  renderDots();
+
+  $('briefCard').innerHTML='<h2>'+L.title+
+    '<span class="chip '+L.tag+'">'+(L.tag==='xss'?'XSS':(L.tag==='sqli'?'SQLi':'BOSS'))+'</span>'+
+    '<span class="chip diff">难度 '+L.diff+'</span></h2>'+
+    '<div class="brief">'+L.brief+'</div>'+
+    '<div class="goal">🎯 目标：<b>'+L.goal+'</b></div>';
+
+  $('urlBar').innerHTML='http://<b>'+L.url.replace(/^http:\/\//,'').replace(/\/$/,'')+'</b>/';
+
+  if(L.app==='guestbook'){
+    $('iframeHost').style.display='block';$('sqlHost').style.display='none';
+    loadXss(L,'');
+    $('ctrlCard').innerHTML=
+      '<div class="ctrl" style="align-items:flex-end"><div class="field"><label>写下你的留言（发布后机器人马上来巡访）</label>'+
+      '<textarea id="gbIn" placeholder="留言内容…"></textarea></div>'+
+      '<button class="btn" id="gbGo">发布 & 呼叫机器人 🤖</button>'+
+      '<button class="btn ghost" id="payReset">清空 🔄</button></div>';
+  }else if(L.app!=='sqli-login'&&L.app!=='sqli-union'){
+    $('iframeHost').style.display='block';$('sqlHost').style.display='none';
+    loadXss(L,'');
+    $('ctrlCard').innerHTML=
+      '<div class="ctrl"><div class="field"><label>注入点（你的输入会被送进上面的页面）</label>'+
+      '<input type="text" id="payIn" placeholder="在这里输入 payload…" autofocus></div>'+
+      '<button class="btn" id="payGo">注入 ⚡</button>'+
+      '<button class="btn ghost" id="payReset">重置 🔄</button></div>';
+  }else{
+    /* SQL 关卡 */
+    $('iframeHost').style.display='none';$('sqlHost').style.display='block';
+    $('sqlLogCard').innerHTML='<div class="card"><h2>🖥 SQL 执行日志 <span class="chip diff">教学用 · 真实站点看不到这个</span></h2><div id="sqlOut"><div class="sqllog">等待请求…</div></div></div>';
+    if(L.app==='sqli-login'){
+      $('sqlHost').innerHTML='<div style="font:15px/1.7 sans-serif;color:#2b3440"><b>CorpSSO 企业统一登录</b><div style="font-size:12px;color:#8a95a3;margin-bottom:10px">（演示站 · 账号体系：admin / test / guest）</div></div>';
+      $('ctrlCard').innerHTML=
+        '<div class="ctrl"><div class="field"><label>用户名</label><input type="text" id="uIn" placeholder="username"></div>'+
+        '<div class="field"><label>密码</label><input type="password" id="pIn" placeholder="password"></div>'+
+        '<button class="btn" id="sqlGo">登录 →</button></div>';
+    }else{
+      $('sqlHost').innerHTML='<div style="font:15px/1.7 sans-serif;color:#2b3440"><b>NewsPortal 文章搜索</b><div style="font-size:12px;color:#8a95a3">（演示站 · 数据表：articles；此外库里还有一张 <b>secrets</b> 表…）</div></div>';
+      $('ctrlCard').innerHTML=
+        '<div class="ctrl"><div class="field"><label>搜索关键词</label><input type="text" id="payIn" placeholder="搜索文章…"></div>'+
+        '<button class="btn" id="sqlGo">搜索 🔍</button></div>';
+    }
+  }
+  $('hintCard').innerHTML='<h2 style="font-size:13px">💡 卡住了？提示按需领取（领取 3 次内通关才算完美）</h2><div id="hintList"></div>'+
+    '<button class="btn ghost" id="hintBtn" style="margin-top:10px">领取一条提示 💡</button>';
+  renderHints();
+
+  var go=$('payGo'),gb=$('gbGo'),sg=$('sqlGo');
+  if(go){go.onclick=doInject;$('payIn').addEventListener('keydown',function(e){if(e.key==='Enter')doInject()});}
+  if(gb){gb.onclick=doGuestbook;}
+  if(sg){sg.onclick=doSql;$('payIn')&&$('payIn').addEventListener('keydown',function(e){if(e.key==='Enter')doSql()});}
+  var rst=$('payReset');
+  if(rst)rst.onclick=function(){
+    gbComments=[];showLevel(cur);toast('已重置本关');
+  };
+  var hb=$('hintBtn');
+  if(hb)hb.onclick=giveHint;
+  window.scrollTo(0,0);
+}
+function loadXss(L,q){
+  var doc=buildXssDoc(L,applyFilter(L.filter,q));
+  /* 先设好 srcdoc 再插入 DOM：避免「先挂空 srcdoc、再改属性」的二次导航竞态，
+     否则部分情况下 iframe 会停在空文档上，payload 永远不执行 */
+  var f=document.createElement('iframe');
+  f.setAttribute('sandbox','allow-scripts allow-modals');
+  f.setAttribute('srcdoc',doc);
+  var host=$('iframeHost');
+  host.innerHTML='';
+  host.appendChild(f);
+}
+function doInject(){
+  var v=$('payIn').value;
+  var L=LEVELS[cur];
+  if(L.filter&&applyFilter(L.filter,v)!==v){
+    var remain=applyFilter(L.filter,v);
+    toast('🛡 WAF：检测到非法关键词，已清洗你的输入');
+    loadXss(L,v);
+    return;
+  }
+  loadXss(L,v);
+}
+function doGuestbook(){
+  var raw=$('gbIn').value;
+  if(!raw){toast('先写点东西再发布呀');return;}
+  var L=LEVELS[cur], idx=cur;
+  var v=applyFilter(L.filter,raw);
+  if(v!==raw)toast('🛡 WAF：命中黑名单关键词，已把 script / onerror 从你的留言里删掉');
+  gbComments.push(v);
+  $('gbIn').value='';
+  loadXss(L,'');
+  toast('🤖 机器人已出发，正在巡访…');
+  var hadScript=/<\s*\/?\s*script/i.test(raw);
+  var hadHandler=/on[a-z]+\s*=/i.test(v);
+  setTimeout(function(){
+    if(state.done[idx])return;
+    if(hadScript&&!hadHandler){
+      toast('💡 机器人渲染完了，但没弹窗：script 标签经 innerHTML 插入不会执行，换带加载事件的标签试试');
+    }else if(hadHandler){
+      toast('💡 渲染完成但事件没触发，注意标签要「加载即触发」，且事件名没被 WAF 删掉');
+    }else{
+      toast('💡 留言已被渲染，但里面没有可执行的代码（没有事件属性）');
+    }
+  },1600);
+}
+function doSql(){
+  var L=LEVELS[cur];
+  if(L.app==='sqli-login'){
+    var u=$('uIn').value,p=$('pIn').value;
+    var r=runLoginQuery(u,p);
+    $('sqlOut').innerHTML=r.log;
+    if(r.msg==='admin')onWin('以 admin 身份绕过密码校验登录成功');
+  }else{
+    var q=$('payIn').value;
+    var r2=runUnionQuery(q);
+    $('sqlOut').innerHTML=r2.log;
+    if(r2.win)onWin('UNION 注入成功，flag 已到手：FLAG{uni0n_i5_p0werful}');
+  }
+}
+function renderHints(){
+  var used=state.hintsUsed[cur]||0;
+  var h='';
+  for(var i=0;i<used&&i<LEVELS[cur].hints.length;i++){
+    h+='<div class="hint"><b>提示 '+(i+1)+'：</b>'+LEVELS[cur].hints[i]+'</div>';
+  }
+  if(used===0)h='<div style="font-size:12.5px;color:var(--dim)">还没有领取提示。自己先试 10 分钟，实在卡住再来 —— 自己打穿的才是真会了。</div>';
+  $('hintList').innerHTML=h;
+  var btn=$('hintBtn');
+  if(used>=LEVELS[cur].hints.length)btn.style.display='none';
+}
+function giveHint(){
+  var used=state.hintsUsed[cur]||0;
+  if(used>=LEVELS[cur].hints.length)return;
+  state.hintsUsed[cur]=used+1;save();renderHints();
+}
+
+/* ============ 通关 ============ */
+window.addEventListener('message',function(e){
+  if(e.data&&e.data.type==='lab-win')onWin(e.data.detail);
+});
+function confetti(){
+  var em=['🎉','🎊','✨','💥','🟩','🟦'];
+  for(var i=0;i<26;i++){
+    var s=document.createElement('span');
+    s.className='confetti';s.textContent=em[i%em.length];
+    s.style.left=(Math.random()*100)+'vw';
+    s.style.animationDuration=(1.6+Math.random()*1.6)+'s';
+    s.style.animationDelay=(Math.random()*.5)+'s';
+    document.body.appendChild(s);
+    (function(el){setTimeout(function(){el.remove()},3600)})(s);
+  }
+}
+function onWin(detail){
+  if(state.done[cur]){toast('这关已经过了，骚操作 +1');return;}
+  state.done[cur]=true;
+  if(cur+1>state.unlocked)state.unlocked=Math.min(cur+1,LEVELS.length-1);
+  save();renderDots();confetti();
+  var L=LEVELS[cur];
+  var allDone=true;
+  for(var i=0;i<LEVELS.length;i++)if(!state.done[i])allDone=false;
+  var h='<h3>🎉 '+L.title+' · 通关！</h3>';
+  if(detail)h+='<div style="font-size:12.5px;color:var(--dim)">本次触发：'+esc(String(detail))+'</div>';
+  h+='<div class="note"><b>📝 技术笔记：</b>'+L.note+'</div>';
+  if(allDone){
+    h+='<div class="cert"><div class="big">🏆</div><h4>注入终结者 · 结业认证</h4>'+
+      '<p>8 / 8 全部通关 · XSS 注入闯关靶场</p>'+
+      '<p style="margin-top:6px">WorkBuddy「1024 造物挑战」参赛作品</p></div>'+
+      '<div style="font-size:12.5px;color:var(--dim)">截图发到社交平台，带话题 <b style="color:var(--cyan)">#WorkBuddy1024造物挑战#</b> 可以拿人气加分哦。</div>'+
+      '<div class="btns"><button class="btn ghost" id="mClose">回顾关卡</button>'+
+      '<button class="btn" id="mResetAll">重新挑战全部</button></div>';
+  }else{
+    h+='<div class="btns"><button class="btn ghost" id="mClose">留在这关</button>'+
+      '<button class="btn" id="mNext">下一关 →</button></div>';
+  }
+  openModal(h);
+  var nx=$('mNext');
+  if(nx)nx.onclick=function(){closeModal();showLevel(Math.min(cur+1,LEVELS.length-1))};
+  var cl=$('mClose');
+  if(cl)cl.onclick=closeModal;
+  var ra=$('mResetAll');
+  if(ra)ra.onclick=function(){
+    state={unlocked:0,done:{},hintsUsed:{}};save();closeModal();showLevel(0);toast('新的轮回开始，祝好运 🔁');
+  };
+}
+function openModal(h){$('modal').innerHTML=h;$('mask').classList.add('show')}
+function closeModal(){$('mask').classList.remove('show')}
+$('mask').addEventListener('click',function(e){if(e.target===this)closeModal()});
+
+/* ============ 首次引导 ============ */
+(function intro(){
+  var anyDone=false;
+  for(var i=0;i<LEVELS.length;i++)if(state.done[i])anyDone=true;
+  if(anyDone)return;
+  openModal('<h3>🕵️ 白帽训练营 · 入营须知</h3>'+
+    '<div style="font-size:13.5px;color:#b9cad8">'+
+    '<p>这里是 8 关的 Web 安全闯关靶场：前 5 关 XSS、第 6-7 关 SQL 注入模拟、最终关 WAF Boss 战。</p>'+
+    '<p style="margin-top:8px">✔ 所有「漏洞页面」都是虚构的，跑在隔离沙箱里，不碰任何真实网站<br>'+
+    '✔ 弹出弹窗 / 拿到 flag / 登进 admin 即通关<br>'+
+    '✔ 每关配 3 条提示和技术笔记，通关自动解锁下一关<br>'+
+    '✔ 进度自动保存在本地</p>'+
+    '<p style="margin-top:8px;color:var(--orange)">⚠ 靶场学的每一招，都只许用在<strong>拿到授权</strong>的目标上。白帽守则第一条：先拿授权，再拿洞。</p>'+
+    '</div>'+
+    '<div class="btns"><button class="btn" id="mStart">开始闯关 ⚡</button></div>');
+  $('mStart').onclick=function(){closeModal();showLevel(state.unlocked)};
+})();
+showLevel(state.unlocked);
+</script>
+</body>
+</html>
